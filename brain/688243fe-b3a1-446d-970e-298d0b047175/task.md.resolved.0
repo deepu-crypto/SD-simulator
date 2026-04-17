@@ -1,0 +1,8 @@
+# Setup Node.js Express Backend
+
+- [/] Initialize Node.js project and layout base directories
+- [/] Set up TypeScript and basic configuration
+- [/] Create modular folder structure (controllers, services, routes, prompts, utils)
+- [/] Set up basic Express server with dotenv
+- [/] Create `/health` endpoint
+- [ ] Install npm dependencies

@@ -1,0 +1,5 @@
+{
+  "artifactType":  "ARTIFACT_TYPE_TASK",
+  "summary":  "Tracking the tasks for integrating crewAI via asynchronous task queue (Redis).",
+  "updatedAt":  "2026-04-06T15:12:07.286813Z"
+}

@@ -1,0 +1,6 @@
+{
+  "artifactType":  "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary":  "Proposed an architecture using Redis (lists & key-value) as a task queue to bridge the Node.js backend with a new Python CrewAI worker. Node.js pushes jobs to Redis, the Python worker polls and executes them, and writes the results back.",
+  "updatedAt":  "2026-04-06T15:05:12.613182400Z",
+  "requestFeedback":  true
+}
