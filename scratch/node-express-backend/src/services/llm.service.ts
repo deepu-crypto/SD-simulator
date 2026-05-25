@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { zodResponseFormat } from 'openai/helpers/zod';
+import { z } from 'zod';
 
 export interface GenerateTextInput {
   systemPrompt?: string;
@@ -9,12 +10,14 @@ export interface GenerateTextInput {
 export interface GenerateStructuredInput<T> {
   systemPrompt?: string;
   userPrompt: string;
-  schema: any; 
+  schema: z.ZodType<T>;
   schemaName: string;
 }
 
 export class LLMService {
   private openai: OpenAI;
+  private readonly textModel = process.env.OPENAI_TEXT_MODEL || 'gpt-4o';
+  private readonly structuredModel = process.env.OPENAI_STRUCTURED_MODEL || 'gpt-4o-2024-08-06';
 
   constructor() {
     this.openai = new OpenAI({
@@ -35,6 +38,63 @@ export class LLMService {
     throw new Error('Retry logic conclusively failed.');
   }
 
+  private hasValidApiKey(): boolean {
+    return Boolean(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'development_mock_key_only');
+  }
+
+  private parseWithSchema<T>(schema: z.ZodType<T>, value: unknown, schemaName: string): T {
+    const result = schema.safeParse(value);
+    if (!result.success) {
+      throw new Error(`OpenAI response failed local validation for '${schemaName}': ${result.error.message}`);
+    }
+    return result.data;
+  }
+
+  private extractLatestAnswerFromPrompt(prompt: string): string {
+    const match = prompt.match(/Candidate's Latest Answer[\s\S]*?"""\n([\s\S]*?)\n"""/);
+    return match?.[1]?.trim() || '';
+  }
+
+  private buildStructuredMock<T>(input: GenerateStructuredInput<T>): T {
+    if (input.schemaName === 'FinalFeedbackSchema') {
+      return this.parseWithSchema(input.schema, {
+        overallScore: 5,
+        strengths: ['Provides some system design discussion when present in the transcript'],
+        weaknesses: ['Needs more transcript-backed depth on requirements, trade-offs, and failure modes'],
+        evidenceSummary: ['Mock mode cannot verify a real model response; feedback is based only on the provided transcript shape'],
+        hiringSignal: 'lean_hire',
+        recommendedTopicsToImprove: ['Requirements clarification', 'Scalability trade-offs', 'Reliability analysis'],
+        shortFinalSummary: '[Mock Data] Limited local feedback generated without calling the LLM.'
+      }, input.schemaName);
+    }
+
+    const latestAnswer = this.extractLatestAnswerFromPrompt(input.userPrompt);
+    const hasSubstantiveAnswer = latestAnswer.length >= 80;
+    const nextStage = this.resolveMockNextStage(input.userPrompt);
+
+    return this.parseWithSchema(input.schema, {
+      score: hasSubstantiveAnswer ? 6 : 3,
+      strengths: hasSubstantiveAnswer ? ['Gives some concrete design detail in the latest answer'] : [],
+      weaknesses: hasSubstantiveAnswer
+        ? ['Needs clearer evidence for scale assumptions and trade-offs']
+        : ['Answer is too brief to support a grounded evaluation'],
+      missedTopics: ['Explicit requirements', 'Capacity assumptions', 'Failure modes'],
+      evidence: hasSubstantiveAnswer ? [latestAnswer.slice(0, 180)] : [],
+      coachingFeedback: hasSubstantiveAnswer
+        ? '[Mock Feedback] Add concrete requirements, scale numbers, and trade-off justification so the evaluation can be grounded.'
+        : '[Mock Feedback] I need more substantive design detail before crediting specific strengths.',
+      nextStage
+    }, input.schemaName);
+  }
+
+  private resolveMockNextStage(prompt: string): string {
+    if (prompt.includes('Current Interview Stage: high_level_design')) return 'database';
+    if (prompt.includes('Current Interview Stage: database')) return 'scaling';
+    if (prompt.includes('Current Interview Stage: scaling')) return 'tradeoffs';
+    if (prompt.includes('Current Interview Stage: tradeoffs')) return 'final';
+    return 'high_level_design';
+  }
+
   /**
    * Generates a plain text response from the OpenAI API.
    * Leverages exponential backoff retries & fallback structures for local testing.
@@ -42,9 +102,9 @@ export class LLMService {
   public async generateText(input: GenerateTextInput): Promise<string> {
     console.log(`[LLMService] Requesting generateText (Query size: ${input.userPrompt.length} chars)`);
 
-    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'development_mock_key_only') {
+    if (!this.hasValidApiKey()) {
       console.log('[LLMService] Missing valid API Key. Falling back to local plaintext mock.');
-      return `[Mock Next Question] In the context of your previous answer, what specific consistency trade-offs did you consider making here?`;
+      return `[Mock Next Question] What functional and non-functional requirements would you clarify before proposing the design?`;
     }
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
@@ -55,9 +115,10 @@ export class LLMService {
 
     return this.executeWithRetry(async () => {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: this.textModel,
         messages,
-        temperature: 0.7,
+        temperature: 0.2,
+        max_tokens: 120,
       });
 
       return completion.choices[0].message.content || '';
@@ -70,35 +131,9 @@ export class LLMService {
   public async generateStructuredObject<T>(input: GenerateStructuredInput<T>): Promise<T> {
     console.log(`[LLMService] Requesting generateStructuredObject '${input.schemaName}' (Query size: ${input.userPrompt.length} chars)`);
 
-    if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'development_mock_key_only') {
+    if (!this.hasValidApiKey()) {
       console.log(`[LLMService] Missing valid API Key. Falling back to structured mock for '${input.schemaName}'.`);
-      
-      if (input.schemaName === 'FinalFeedbackSchema') {
-         return {
-           overallScore: 8,
-           strengths: ["Clean component isolation", "System logic structure"],
-           weaknesses: ["Trade-offs analysis depth"],
-           hiringSignal: "hire",
-           recommendedTopicsToImprove: ["Replication architectures"],
-           shortFinalSummary: "[Mock Data] Demonstrates a solid senior execution floor. Good foundations."
-         } as unknown as T;
-      }
-      
-      // Implicitly Evaluation schema mock progression
-      let nextStage = "high_level_design";
-      if (input.userPrompt.includes("Current Interview Stage: high_level_design")) nextStage = "database";
-      else if (input.userPrompt.includes("Current Interview Stage: database")) nextStage = "scaling";
-      else if (input.userPrompt.includes("Current Interview Stage: scaling")) nextStage = "tradeoffs";
-      else if (input.userPrompt.includes("Current Interview Stage: tradeoffs")) nextStage = "final";
-
-      return {
-        score: Math.floor(Math.random() * 3) + 6,
-        strengths: ["Identifies functional gaps swiftly"],
-        weaknesses: ["Missed edge cases surrounding fault tolerance"],
-        missedTopics: ["Message queues logic"],
-        coachingFeedback: "[Mock Feedback] Your approach is mechanically sound, but could rely heavier on queue patterns to decouple flow.",
-        nextStage
-      } as unknown as T;
+      return this.buildStructuredMock(input);
     }
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
@@ -109,10 +144,10 @@ export class LLMService {
 
     return this.executeWithRetry(async () => {
       const completion = await this.openai.chat.completions.parse({
-        model: 'gpt-4o-2024-08-06',
+        model: this.structuredModel,
         messages,
         response_format: zodResponseFormat(input.schema, input.schemaName),
-        temperature: 0.2, // Locked lower for deterministic parsing constraints
+        temperature: 0,
       });
 
       const parsed = completion.choices[0].message.parsed;
@@ -120,7 +155,7 @@ export class LLMService {
         throw new Error('Failed to deserialize parsed schema block from OpenAI response stream.');
       }
       
-      return parsed as T;
+      return this.parseWithSchema(input.schema, parsed, input.schemaName);
     });
   }
 }

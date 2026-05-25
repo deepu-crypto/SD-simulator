@@ -74,6 +74,7 @@ export class InterviewService {
       overallScore: parsedResult.overallScore,
       strengths: parsedResult.strengths,
       weaknesses: parsedResult.weaknesses,
+      evidenceSummary: parsedResult.evidenceSummary,
       hiringSignal: parsedResult.hiringSignal,
       recommendedTopicsToImprove: parsedResult.recommendedTopicsToImprove,
       shortFinalSummary: parsedResult.shortFinalSummary
@@ -105,6 +106,7 @@ export class InterviewService {
       strengths: parsedResult.strengths || [],
       weaknesses: parsedResult.weaknesses || [],
       missedTopics: parsedResult.missedTopics || [],
+      evidence: parsedResult.evidence || [],
       nextStage: parsedResult.nextStage
     };
 
@@ -141,10 +143,12 @@ export class InterviewService {
       context.difficulty
     );
 
-    return this.llmService.generateText({
+    const rawQuestion = await this.llmService.generateText({
       systemPrompt: this.getSystemPromptContent(context),
       userPrompt: prompt
     });
+
+    return this.sanitizeFollowUpQuestion(rawQuestion, context.currentStage);
   }
 
   // --- PRIVATE STATE MUTATION & UTILITY METHODS ---
@@ -184,6 +188,44 @@ export class InterviewService {
       .filter(msg => msg.role !== 'system')
       .map(msg => `${msg.role.toUpperCase()}: ${msg.content}`)
       .join('\n\n');
+  }
+
+  private sanitizeFollowUpQuestion(rawQuestion: string, stage: InterviewStage): string {
+    const stripped = rawQuestion
+      .replace(/^\s*(next\s+question|question|follow-up)\s*:\s*/i, '')
+      .trim();
+
+    const firstQuestionMark = stripped.indexOf('?');
+    if (firstQuestionMark >= 0) {
+      const candidate = stripped.slice(0, firstQuestionMark + 1).trim();
+      if (candidate.length > 0) {
+        return candidate;
+      }
+    }
+
+    const firstLine = stripped.split(/\r?\n/).map(line => line.trim()).find(Boolean);
+    if (firstLine && firstLine.length <= 180 && !/[.!]$/.test(firstLine)) {
+      return `${firstLine}?`;
+    }
+
+    return this.getFallbackQuestionForStage(stage);
+  }
+
+  private getFallbackQuestionForStage(stage: InterviewStage): string {
+    switch (stage) {
+      case 'requirements':
+        return 'What functional and non-functional requirements would you clarify before designing this system?';
+      case 'high_level_design':
+        return 'What are the core components of your high-level design and how do they interact?';
+      case 'database':
+        return 'What data model and storage choices would you use, and why?';
+      case 'scaling':
+        return 'Where are the expected bottlenecks, and how would you scale the design?';
+      case 'tradeoffs':
+        return 'What trade-offs does your design make around consistency, latency, cost, and reliability?';
+      case 'final':
+        return 'What is the most important trade-off in your final design?';
+    }
   }
 
   private updateCumulativeScore(context: InterviewContext): void {

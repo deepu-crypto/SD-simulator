@@ -13,6 +13,7 @@ export interface EvaluationResult {
   strengths: string[];
   weaknesses: string[];
   missedTopics?: string[];
+  evidence?: string[];
   nextStage?: string;
 }
 
@@ -20,6 +21,7 @@ export interface FinalFeedback {
   overallScore: number;
   strengths: string[];
   weaknesses: string[];
+  evidenceSummary: string[];
   hiringSignal: 'strong_hire' | 'hire' | 'lean_hire' | 'lean_no_hire' | 'no_hire';
   recommendedTopicsToImprove: string[];
   shortFinalSummary: string;

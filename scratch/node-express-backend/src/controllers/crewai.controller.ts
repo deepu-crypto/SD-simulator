@@ -2,17 +2,24 @@ import { Request, Response } from 'express';
 import { CrewAIQueueService } from '../services/crewai-queue.service';
 
 const queueService = new CrewAIQueueService();
+const MAX_TOPIC_LENGTH = 120;
 
 export const startCrewAIJob = async (req: Request, res: Response): Promise<void> => {
   try {
     const { topic } = req.body;
     
-    if (!topic || typeof topic !== 'string') {
+    if (!topic || typeof topic !== 'string' || !topic.trim()) {
       res.status(400).json({ error: 'Missing topic in request body.' });
       return;
     }
 
-    const jobId = await queueService.enqueueJob({ topic });
+    const normalizedTopic = topic.trim().replace(/\s+/g, ' ');
+    if (normalizedTopic.length > MAX_TOPIC_LENGTH) {
+      res.status(400).json({ error: `"topic" must be ${MAX_TOPIC_LENGTH} characters or fewer.` });
+      return;
+    }
+
+    const jobId = await queueService.enqueueJob({ topic: normalizedTopic });
     
     res.status(202).json({
       message: 'CrewAI job enqueued successfully.',
