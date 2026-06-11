@@ -4,18 +4,25 @@ exports.finalizeInterviewSession = exports.continueInterviewSession = exports.st
 const interview_service_1 = require("../services/interview.service");
 const interview_store_1 = require("../store/interview.store");
 const interviewService = new interview_service_1.InterviewService();
+const MAX_PROBLEM_LENGTH = 500;
+const MAX_ANSWER_LENGTH = 5000;
 const startInterviewSession = async (req, res) => {
     try {
         const { problem, difficulty } = req.body;
-        if (!problem || typeof problem !== 'string') {
+        if (!problem || typeof problem !== 'string' || !problem.trim()) {
             res.status(400).json({ error: 'Missing or invalid "problem" field in request body.' });
+            return;
+        }
+        const normalizedProblem = problem.trim();
+        if (normalizedProblem.length > MAX_PROBLEM_LENGTH) {
+            res.status(400).json({ error: `"problem" must be ${MAX_PROBLEM_LENGTH} characters or fewer.` });
             return;
         }
         const validDifficulties = ['Junior', 'Mid', 'Senior', 'Staff'];
         const resolvedDifficulty = (difficulty && validDifficulties.includes(difficulty))
             ? difficulty
             : 'Senior';
-        const result = await interviewService.startInterview(problem, resolvedDifficulty);
+        const result = await interviewService.startInterview(normalizedProblem, resolvedDifficulty);
         const sessionId = await interview_store_1.interviewStore.createSession(result.context);
         res.status(201).json({
             sessionId,
@@ -36,8 +43,13 @@ const continueInterviewSession = async (req, res) => {
             res.status(400).json({ error: 'Missing or invalid "sessionId" field.' });
             return;
         }
-        if (!userAnswer || typeof userAnswer !== 'string') {
+        if (!userAnswer || typeof userAnswer !== 'string' || !userAnswer.trim()) {
             res.status(400).json({ error: 'Missing or invalid "userAnswer" field.' });
+            return;
+        }
+        const normalizedAnswer = userAnswer.trim();
+        if (normalizedAnswer.length > MAX_ANSWER_LENGTH) {
+            res.status(400).json({ error: `"userAnswer" must be ${MAX_ANSWER_LENGTH} characters or fewer.` });
             return;
         }
         const context = await interview_store_1.interviewStore.getSession(sessionId);
@@ -45,7 +57,7 @@ const continueInterviewSession = async (req, res) => {
             res.status(404).json({ error: 'Interview session not found or has expired.' });
             return;
         }
-        const result = await interviewService.evaluateAnswer(userAnswer, context);
+        const result = await interviewService.evaluateAnswer(normalizedAnswer, context);
         await interview_store_1.interviewStore.updateSession(sessionId, result.context);
         const latestEvaluation = result.context.evaluations[result.context.evaluations.length - 1];
         res.status(200).json({

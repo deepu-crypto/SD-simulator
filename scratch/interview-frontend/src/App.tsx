@@ -5,10 +5,22 @@ const API_BASE = 'http://localhost:3002/interview';
 
 interface Evaluation {
   score: number;
-  feedback: string;
+  coachingFeedback: string;
   strengths: string[];
   weaknesses: string[];
-  next_stage: string;
+  missedTopics?: string[];
+  evidence?: string[];
+  nextStage: string;
+}
+
+interface FinalReport {
+  overallScore: number;
+  strengths: string[];
+  weaknesses: string[];
+  evidenceSummary?: string[];
+  hiringSignal: string;
+  recommendedTopicsToImprove: string[];
+  shortFinalSummary: string;
 }
 
 interface Message {
@@ -30,7 +42,7 @@ function App() {
   const [isFinished, setIsFinished] = useState(false);
 
   // Final summary
-  const [finalReport, setFinalReport] = useState<any>(null);
+  const [finalReport, setFinalReport] = useState<FinalReport | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -189,9 +201,12 @@ function App() {
             {msg.role === 'ai' && msg.evaluation && (
               <div className="evaluation-box" style={{ marginBottom: '1rem' }}>
                 <h4>Score: {msg.evaluation.score}/10</h4>
-                <p><strong>Feedback:</strong> {msg.evaluation.feedback}</p>
+                <p><strong>Feedback:</strong> {msg.evaluation.coachingFeedback}</p>
                 {msg.evaluation.strengths?.length > 0 && <p><strong>Strengths:</strong> {msg.evaluation.strengths.join(', ')}</p>}
                 {msg.evaluation.weaknesses?.length > 0 && <p><strong>Missed:</strong> {msg.evaluation.weaknesses.join(', ')}</p>}
+                {msg.evaluation.evidence && msg.evaluation.evidence.length > 0 && (
+                  <p><strong>Evidence:</strong> {msg.evaluation.evidence.join(' | ')}</p>
+                )}
               </div>
             )}
             <div>{msg.content}</div>
@@ -213,18 +228,21 @@ function App() {
             <div className="score-display">
               <div>
                 <h2>Conclusion</h2>
-                <h3 style={{color: 'var(--success)'}}>Signal: {finalReport.hiring_signal?.replace('_', ' ').toUpperCase()}</h3>
+                <h3 style={{color: 'var(--success)'}}>Signal: {finalReport.hiringSignal?.replace('_', ' ').toUpperCase()}</h3>
               </div>
-              <div className="score-circle" style={{ '--score-pct': `${(finalReport.overall_score / 10) * 100}%` } as React.CSSProperties}>
-                {finalReport.overall_score}/10
+              <div className="score-circle" style={{ '--score-pct': `${(finalReport.overallScore / 10) * 100}%` } as React.CSSProperties}>
+                {finalReport.overallScore}/10
               </div>
             </div>
-            <p><strong>Summary:</strong> {finalReport.short_final_summary}</p>
+            <p><strong>Summary:</strong> {finalReport.shortFinalSummary}</p>
             <br />
             <p><strong>Strengths:</strong> {finalReport.strengths?.join(', ')}</p>
             <p><strong>Weaknesses:</strong> {finalReport.weaknesses?.join(', ')}</p>
+            {finalReport.evidenceSummary && finalReport.evidenceSummary.length > 0 && (
+              <p><strong>Evidence:</strong> {finalReport.evidenceSummary.join(' | ')}</p>
+            )}
             <br />
-            <p style={{ color: 'var(--accent-primary)'}}><strong>Study Plan:</strong> {finalReport.recommended_topics_to_improve?.join(', ')}</p>
+            <p style={{ color: 'var(--accent-primary)'}}><strong>Study Plan:</strong> {finalReport.recommendedTopicsToImprove?.join(', ')}</p>
           </div>
         )}
 
